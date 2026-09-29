@@ -38,17 +38,29 @@ My background is mainly C, Java and MATLAB, with less Python experience. I spent
 
 I used ChatGPT extensively as a development aid, as allowed by the brief. I used it to understand unfamiliar Python/asyncio code, reason about concurrency and failure cases, debug the environment, and design additional tests. I reviewed and exercised the final implementation and can explain the choices made.
 
-If two drivers report completion at the same time, both result handlers may start concurrently, but the scheduler lock makes them process state changes one at a time. Device work itself still remains concurrent.
-
-## What I deliberately did not solve
+## 1. What I deliberately did not build
 
 I did not add automatic recovery for a dropped `StepResult`.
 
-A device can finish the physical work and become idle while the executor still thinks the step is `dispatched`. From the current protocol, the executor cannot know whether the lost result meant success or failure. Repeating a physical operation, especially liquid handling, may be unsafe.
+Repeating a physical operation, especially liquid handling, may be unsafe if the device actually completed the work but the result message was lost.
+
+## 2. Where the implementation is most likely to break
+
+The implementation is most likely to break at the boundary between the executor's database state and what actually happened on a device.
+
+The `asyncio.Lock` also protects only one executor process. Multiple executor replicas would need database-level coordination.
+
+## 3. If two drivers finish at the same time
+
+If two drivers report completion at the same time, both result handlers may start concurrently, but the scheduler lock makes them process state changes one at a time. Device work itself still remains concurrent.
+
+## 4. If an instrument works but never reports back
+
+In the current implementation, the step remains `dispatched` and the run can remain `running` indefinitely because no later event tells the scheduler how the step ended.
+
+A device can finish the physical work and become idle while the executor still thinks the step is `dispatched`. From the current protocol, the executor cannot know whether the lost result meant success or failure.
 
 I added a probe that demonstrates this exact limitation. A production system would need durable command/result IDs, timeout-based reconciliation, stored results, and a clear rule for whether a physical command can safely be repeated.
-
-The implementation is most likely to break at the boundary between the executor's database state and what actually happened on a device. The `asyncio.Lock` also protects only one executor process. Multiple executor replicas would need database-level coordination.
 
 ## Feedback
 
